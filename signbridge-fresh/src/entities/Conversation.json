@@ -1,0 +1,13 @@
+{
+  "name": "Conversation",
+  "type": "object",
+  "properties": {
+    "message_type": {
+      "type": "string",
+      "enum": ["sign_to_text", "text_to_sign"]
+    },
+    "original_content": { "type": "string" },
+    "translated_content": { "type": "string" },
+    "media_url": { "type": "string" }
+  }
+}
