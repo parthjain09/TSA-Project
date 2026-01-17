@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignBridge - Breaking Barriers with AI</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --secondary: #0f172a;
+            --accent: #f59e0b;
+            --background: #f8fafc;
+            --text: #334155;
+            --text-light: #94a3b8;
+            --white: #ffffff;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--background);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        /* Utility */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: var(--white);
+            box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+
+        /* Navbar */
+        nav {
+            background: var(--white);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            padding: 1rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        nav .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        /* Hero */
+        .hero {
+            padding: 80px 0;
+            text-align: center;
+            background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            color: var(--secondary);
+            margin-bottom: 20px;
+            line-height: 1.2;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text);
+            max-width: 700px;
+            margin: 0 auto 40px;
+        }
+
+        /* Features */
+        .features {
+            padding: 80px 0;
+            background: var(--white);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+            margin-top: 50px;
+        }
+
+        .feature-card {
+            background: var(--background);
+            padding: 30px;
+            border-radius: 12px;
+            transition: transform 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            color: var(--primary);
+        }
+
+        .feature-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+            color: var(--secondary);
+        }
+
+        /* Accessibility Mission */
+        .mission {
+            padding: 80px 0;
+            background: var(--secondary);
+            color: var(--white);
+            text-align: center;
+        }
+
+        .mission h2 {
+            font-size: 2.5rem;
+            margin-bottom: 30px;
+        }
+
+        .mission p {
+            font-size: 1.25rem;
+            color: var(--text-light);
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* Footer */
+        footer {
+            padding: 40px 0;
+            text-align: center;
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav>
+        <div class="container">
+            <a href="#" class="logo">SignBridge</a>
+            <a href="../signbridge-web/dist/SignBridge-0.0.0-arm64.dmg" class="btn btn-primary">Download App</a>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <div class="container">
+            <h1>Bridging Communication<br>Through AI</h1>
+            <p>Empower connection with real-time Sign Language recognition.
+                Private, fast, and accessible directly from your desktop.</p>
+            <a href="../signbridge-web/dist/SignBridge-0.0.0-arm64.dmg" class="btn btn-primary"
+                style="font-size: 1.2rem; padding: 16px 32px;">
+                Download for Mac (Apple Silicon)
+            </a>
+            <p style="font-size: 0.9rem; color: #64748b; margin-top: 10px;">
+                Also available for Intel Macs and Windows (Coming Soon)
+            </p>
+        </div>
+    </section>
+
+    <section class="features">
+        <div class="container">
+            <h2 style="text-align: center; font-size: 2.5rem; color: var(--secondary);">Why SignBridge?</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🚀</div>
+                    <h3>Real-Time AI</h3>
+                    <p>Instant sign detection with no server latency. Everything runs locally on your device for maximum
+                        speed.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🧠</div>
+                    <h3>Custom Training</h3>
+                    <p>Teach SignBridge new signs in seconds! Our unique "Training Mode" adapts to your specific
+                        gestures.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Privacy First</h3>
+                    <p>Your camera feed never leaves your computer. We believe accessibility tools should respect your
+                        privacy.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="mission">
+        <div class="container">
+            <h2>Our Accessibility Mission</h2>
+            <p>
+                Communication is a human right. We built SignBridge to remove barriers between signers and non-signers,
+                creating a more inclusive digital world. By leveraging on-device AI, we ensure that
+                assistive technology is accessible to everyone, everywhere, without expensive hardware.
+            </p>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 SignBridge Project. Built for TSA Challenge.</p>
+        </div>
+    </footer>
+
+</body>
+
+</html>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, TextField, Button, Typography, Paper, List, ListItem, ListItemText, Chip, IconButton } from '@mui/material';
+import { Box, TextField, Button, Typography, Paper, List, ListItem, ListItemText, Chip, IconButton, Divider } from '@mui/material';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import CameraIcon from '@mui/icons-material/Camera';
 
@@ -16,32 +16,33 @@ const TrainingPanel = ({ classCounts, onAddClass, onCapture }) => {
     const sortedClasses = Object.keys(classCounts).sort();
 
     return (
-        <Paper elevation={3} sx={{ p: 2, height: '100%', overflowY: 'auto' }}>
-            <Typography variant="h6" gutterBottom>
-                Training Mode
+        <Paper elevation={0} sx={{ p: 3, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <Typography variant="h5" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+                Training Studio
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                1. Name a gesture
-                2. Click "+" to add it
-                3. Hold the gesture and click "Capture" repeatedly to train
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Teach SignBridge new signs instantly.
             </Typography>
 
-            <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+            <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
                 <TextField
-                    label="New Gesture Name"
+                    label="Gesture Name"
                     variant="outlined"
                     size="small"
                     value={newClassName}
                     onChange={(e) => setNewClassName(e.target.value)}
                     fullWidth
+                    sx={{ bgcolor: 'rgba(0,0,0,0.2)' }}
                     onKeyPress={(e) => e.key === 'Enter' && handleAddClass()}
                 />
-                <IconButton color="primary" onClick={handleAddClass} disabled={!newClassName.trim()}>
-                    <AddCircleIcon />
+                <IconButton color="primary" onClick={handleAddClass} disabled={!newClassName.trim()} size="large">
+                    <AddCircleIcon fontSize="inherit" />
                 </IconButton>
             </Box>
 
-            <List dense>
+            <Divider sx={{ mb: 2, borderColor: 'rgba(255,255,255,0.1)' }} />
+
+            <List dense sx={{ flexGrow: 1 }}>
                 {sortedClasses.map((label) => (
                     <ListItem
                         key={label}
@@ -52,22 +53,30 @@ const TrainingPanel = ({ classCounts, onAddClass, onCapture }) => {
                                 size="small"
                                 startIcon={<CameraIcon />}
                                 onClick={() => onCapture(label)}
+                                sx={{ borderRadius: 20 }}
                             >
-                                Capture
+                                Learn
                             </Button>
                         }
-                        sx={{ bgcolor: 'background.default', mb: 1, borderRadius: 1 }}
+                        sx={{
+                            bgcolor: 'rgba(255,255,255,0.03)',
+                            mb: 1.5,
+                            borderRadius: 2,
+                            transition: 'all 0.2s',
+                            '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' }
+                        }}
                     >
                         <ListItemText
-                            primary={<Typography variant="subtitle2">{label}</Typography>}
+                            primary={<Typography variant="subtitle1" fontWeight="500">{label}</Typography>}
+                            secondary={`${classCounts[label]} samples`}
                         />
-                        <Chip label={`${classCounts[label]} samples`} size="small" variant="outlined" sx={{ mr: 2 }} />
                     </ListItem>
                 ))}
                 {sortedClasses.length === 0 && (
-                    <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 2 }}>
-                        No custom gestures yet.
-                    </Typography>
+                    <Box sx={{ textAlign: 'center', mt: 4, opacity: 0.5 }}>
+                        <Typography variant="body2">No custom gestures yet.</Typography>
+                        <Typography variant="caption">Add one above to start!</Typography>
+                    </Box>
                 )}
             </List>
         </Paper>
