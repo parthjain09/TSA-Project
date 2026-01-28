@@ -1,190 +1,180 @@
-/**
- * Gesture Recognition for ASL Alphabet
- * Uses MediaPipe hand landmarks to detect static ASL signs
- */
+// math stuff
+// finds the angle
+function calc(p1, p2, p3) {
+  // make vectors
+  const a = { x: p1.x - p2.x, y: p1.y - p2.y, z: p1.z - p2.z };
+  const b = { x: p3.x - p2.x, y: p3.y - p2.y, z: p3.z - p2.z };
 
-// Helper to calculate distance between two points
-const getDistance = (p1, p2) => {
-  return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2) + Math.pow((p1.z || 0) - (p2.z || 0), 2));
+  // do math
+  const dot = a.x * b.x + a.y * b.y + a.z * b.z;
+  const len1 = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+  const len2 = Math.sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
+
+  // get degrees
+  const rad = Math.acos(dot / (len1 * len2));
+  return (rad * 180) / Math.PI; // degrees
+}
+
+// checks if finger is down
+const checkFinger = (list, idx, hand) => {
+  const tip = list[idx * 4 + 4];
+  const pip = list[idx * 4 + 2];
+  const mcp = list[idx * 4 + 1];
+
+  // thumb check
+  if (idx === 0) {
+    let r = false;
+    if (hand === "Right") r = true;
+
+    // check x distance
+    const d = tip.x - mcp.x;
+    if (r) {
+      return d < -0.02; // thumb in
+    } else {
+      return d > 0.02;
+    }
+  }
+
+  // check y height
+  return tip.y > pip.y;
 };
 
-// Check if finger is extended (tip above/below certain joints)
-const isFingerExtended = (landmarks, fingerTip, fingerPip, fingerMcp) => {
-  // Finger is extended if tip is further from wrist than pip
-  const tipToWrist = getDistance(landmarks[fingerTip], landmarks[0]);
-  const pipToWrist = getDistance(landmarks[fingerPip], landmarks[0]);
-  return tipToWrist > pipToWrist * 0.9; // Some tolerance
-};
+export const recognizeGesture = (l, h = "Right") => {
+  if (!l) return null;
 
-// Check if finger is curled
-const isFingerCurled = (landmarks, fingerTip, fingerPip) => {
-  // Simple: Y position check (tip below pip in screen coords = curled)
-  return landmarks[fingerTip].y > landmarks[fingerPip].y;
-};
-
-export const recognizeGesture = (landmarks) => {
-  if (!landmarks || landmarks.length !== 21) return null;
-
-  // Landmark indices
-  const WRIST = 0;
-  const THUMB_CMC = 1, THUMB_MCP = 2, THUMB_IP = 3, THUMB_TIP = 4;
-  const INDEX_MCP = 5, INDEX_PIP = 6, INDEX_DIP = 7, INDEX_TIP = 8;
-  const MIDDLE_MCP = 9, MIDDLE_PIP = 10, MIDDLE_DIP = 11, MIDDLE_TIP = 12;
-  const RING_MCP = 13, RING_PIP = 14, RING_DIP = 15, RING_TIP = 16;
-  const PINKY_MCP = 17, PINKY_PIP = 18, PINKY_DIP = 19, PINKY_TIP = 20;
-
-  // Check finger states
-  const indexUp = landmarks[INDEX_TIP].y < landmarks[INDEX_PIP].y;
-  const middleUp = landmarks[MIDDLE_TIP].y < landmarks[MIDDLE_PIP].y;
-  const ringUp = landmarks[RING_TIP].y < landmarks[RING_PIP].y;
-  const pinkyUp = landmarks[PINKY_TIP].y < landmarks[PINKY_PIP].y;
-
-  // Thumb state (horizontal check for right hand)
-  const thumbOut = landmarks[THUMB_TIP].x < landmarks[THUMB_IP].x; // Left of IP = out
-
-  // Count extended fingers
-  const extendedCount = [indexUp, middleUp, ringUp, pinkyUp].filter(Boolean).length;
-
-  // Distances
-  const thumbToIndex = getDistance(landmarks[THUMB_TIP], landmarks[INDEX_TIP]);
-  const thumbToMiddle = getDistance(landmarks[THUMB_TIP], landmarks[MIDDLE_TIP]);
-  const indexToMiddle = getDistance(landmarks[INDEX_TIP], landmarks[MIDDLE_TIP]);
-  const middleToRing = getDistance(landmarks[MIDDLE_TIP], landmarks[RING_TIP]);
-
-  // Palm size for normalization
-  const palmSize = getDistance(landmarks[WRIST], landmarks[MIDDLE_MCP]);
-
-  // === GESTURE DETECTION ===
-
-  // A: Fist with thumb on side (not crossed)
-  // All fingers curled, thumb beside index
-  if (!indexUp && !middleUp && !ringUp && !pinkyUp) {
-    if (thumbOut || landmarks[THUMB_TIP].x < landmarks[INDEX_MCP].x) {
-      return { gesture: "A", confidence: 85 };
-    }
-    // S: Thumb crosses over curled fingers
-    if (landmarks[THUMB_TIP].x > landmarks[INDEX_PIP].x) {
-      return { gesture: "S", confidence: 80 };
-    }
-    // E: Fingertips touch thumb
-    if (thumbToIndex < palmSize * 0.3 && thumbToMiddle < palmSize * 0.4) {
-      return { gesture: "E", confidence: 75 };
-    }
-    return { gesture: "A", confidence: 70 }; // Default fist = A
+  // fix left hand
+  let m = 1;
+  if (h !== "Right") {
+    m = -1; // flip it
   }
 
-  // B: All 4 fingers extended, thumb tucked
-  if (indexUp && middleUp && ringUp && pinkyUp) {
-    // Check if fingers are together
-    if (indexToMiddle < palmSize * 0.15 && middleToRing < palmSize * 0.15) {
-      return { gesture: "B", confidence: 90 };
-    }
-    // 5/Open hand if spread
-    return { gesture: "Hello", confidence: 85 };
-  }
+  // math helper
+  const dX = (a, b) => (a.x - b.x) * m;
 
-  // C: Curved hand (thumb and index form C shape)
-  // Check if thumb and index tips are moderately apart, forming arc
-  if (thumbToIndex > palmSize * 0.3 && thumbToIndex < palmSize * 0.8) {
-    if (!indexUp && !middleUp && !ringUp && !pinkyUp) {
-      // All fingers curved together
-      return { gesture: "C", confidence: 70 };
-    }
-  }
+  // getting points
+  const t = l[4]; // thumb tip
+  const i = l[8]; // index tip
+  const mid = l[12]; // middle
+  const ring = l[16];
+  const p = l[20]; // pinky
 
-  // D: Index up, others curled, thumb touches middle finger
-  if (indexUp && !middleUp && !ringUp && !pinkyUp) {
-    if (thumbToMiddle < palmSize * 0.25) {
-      return { gesture: "D", confidence: 85 };
-    }
-    // L: Index up, thumb out (L shape)
-    if (thumbOut) {
-      return { gesture: "L", confidence: 85 };
-    }
-    return { gesture: "D", confidence: 75 };
-  }
+  // joints
+  const t_mcp = l[2];
+  const i_mcp = l[5];
+  const m_mcp = l[9];
+  const r_mcp = l[13];
+  const p_mcp = l[17];
 
-  // F: Index and thumb touch (circle), other 3 fingers up
-  if (thumbToIndex < palmSize * 0.15 && middleUp && ringUp && pinkyUp) {
-    return { gesture: "F", confidence: 90 };
-  }
+  const i_pip = l[6];
 
-  // G: Index points sideways, thumb parallel
-  // H: Index + Middle sideways, thumb tucked
+  // check which fingers are down
+  const f1 = checkFinger(l, 1); // index
+  const f2 = checkFinger(l, 2); // middle
+  const f3 = checkFinger(l, 3); // ring
+  const f4 = checkFinger(l, 4); // pinky
 
-  // I: Only pinky up
-  if (!indexUp && !middleUp && !ringUp && pinkyUp) {
-    return { gesture: "I", confidence: 90 };
-  }
+  // START GUESSING
 
-  // K: Index up, middle up angled, thumb between
-  if (indexUp && middleUp && !ringUp && !pinkyUp) {
-    // Check if thumb is between index and middle
-    const thumbBetween = landmarks[THUMB_TIP].y < landmarks[INDEX_PIP].y &&
-      landmarks[THUMB_TIP].y > landmarks[INDEX_TIP].y;
-    if (thumbBetween && indexToMiddle > palmSize * 0.1) {
-      return { gesture: "K", confidence: 75 };
+  // IF ALL FINGERS DOWN (Fist stuff)
+  if (f1 && f2 && f3 && f4) {
+    // checking for E
+    // if thumb is close to index
+    const dist = Math.sqrt(Math.pow(t.x - l[6].x, 2) + Math.pow(t.y - l[6].y, 2));
+    if (calc(l[2], l[3], l[4]) < 150 && dist < 0.05) {
+      return "E";
     }
 
-    // V: Index + Middle spread
-    if (indexToMiddle > palmSize * 0.15) {
-      return { gesture: "V", confidence: 90 };
+    // S: thumb over fingers
+    if (dX(t, l[6]) > 0.01 && dX(t, l[9]) < 0.05) {
+      return "S";
     }
 
-    // U: Index + Middle together
-    if (indexToMiddle < palmSize * 0.1) {
-      return { gesture: "U", confidence: 85 };
+    // A: thumb on side
+    if (dX(t, l[5]) < -0.01) {
+      return "A";
     }
 
-    return { gesture: "V", confidence: 80 };
-  }
+    // M, N, T (super annoying to tell apart)
+    // trying to check where the thumb is
 
-  // O: All fingertips touch thumb (circle shape)
-  if (thumbToIndex < palmSize * 0.2 && thumbToMiddle < palmSize * 0.25) {
-    if (!indexUp && !middleUp) {
-      return { gesture: "O", confidence: 75 };
+    if (dX(t, l[5]) > -0.02 && dX(t, l[9]) < 0.02) {
+      return "T"; // thumb in middle
     }
-  }
 
-  // R: Index and middle crossed
-  if (indexUp && middleUp && !ringUp && !pinkyUp) {
-    // Check if crossed (index x > middle x)
-    if (landmarks[INDEX_TIP].x > landmarks[MIDDLE_TIP].x) {
-      return { gesture: "R", confidence: 80 };
+    if (dX(t, l[9]) > -0.02 && dX(t, l[13]) < 0.02) {
+      return "N";
     }
+
+    if (dX(t, l[13]) > -0.02) {
+      return "M"; // thumb far right
+    }
+
+    return "S"; // default i guess
   }
 
-  // W: Index, Middle, Ring up. Pinky down.
-  if (indexUp && middleUp && ringUp && !pinkyUp) {
-    return { gesture: "W", confidence: 90 };
+  // ONE FINGER UP
+  if (!f1 && f2 && f3 && f4) {
+    // D or L or X??
+
+    // checking for L
+    if (dX(t, l[5]) < -0.1) {
+      return "L";
+    }
+
+    // Hook X
+    if (calc(l[5], l[6], i) < 150) {
+      return "X";
+    }
+
+    return "D";
   }
 
-  // X: Index hooked/bent (tip below dip)
-  if (landmarks[INDEX_TIP].y > landmarks[INDEX_DIP].y && !middleUp && !ringUp && !pinkyUp) {
-    return { gesture: "X", confidence: 75 };
+  // PINKY UP
+  if (f1 && f2 && f3 && !f4) {
+    if (dX(t, l[5]) < -0.1) return "Y"; // hang loose
+    return "I";
   }
 
-  // Y: Thumb and Pinky out, others curled
-  if (!indexUp && !middleUp && !ringUp && pinkyUp && thumbOut) {
-    return { gesture: "Y", confidence: 90 };
+  // TWO FINGERS (U, V, R, K)
+  if (!f1 && !f2 && f3 && f4) {
+    // check if crossed (R)
+    if (dX(i, mid) > 0) return "R";
+
+    // check distance for U
+    const dt = Math.sqrt(Math.pow(i.x - mid.x, 2) + Math.pow(i.y - mid.y, 2));
+    if (dt < 0.04) return "U";
+
+    // K has thumb up
+    if (t.y < l[5].y) return "K";
+
+    return "V";
   }
 
-  // Thumbs Up: Thumb up, all fingers curled
-  if (!indexUp && !middleUp && !ringUp && !pinkyUp &&
-    landmarks[THUMB_TIP].y < landmarks[THUMB_IP].y) {
-    return { gesture: "👍 Thumbs Up", confidence: 85 };
+  // THREE FINGERS (W, F)
+  if (!f1 && !f2 && !f3 && f4) {
+    return "W";
   }
 
-  // Rock/ILY: Thumb, Index, Pinky up
-  if (indexUp && !middleUp && !ringUp && pinkyUp && thumbOut) {
-    return { gesture: "🤟 I Love You", confidence: 85 };
+  // F (ok sign)
+  if (f1 && !f2 && !f3 && !f4) {
+    // check circle
+    const d = Math.sqrt(Math.pow(i.x - t.x, 2) + Math.pow(i.y - t.y, 2));
+    if (d < 0.05) return "F";
   }
 
-  // Three: Index, Middle, Ring up with thumb and pinky curled  
-  if (indexUp && middleUp && ringUp && !pinkyUp && !thumbOut) {
-    return { gesture: "3", confidence: 80 };
+  // OPEN HAND (B / Space)
+  if (!f1 && !f2 && !f3 && !f4) {
+    // B usually has thumb in
+    if (dX(t, l[5]) < -0.05) return "B"; // space
+    return "B";
   }
 
-  // Default: No match
-  return null;
+  // G and H (Sideways)
+  // checking if index is flat??
+  if (Math.abs(i.y - i_mcp.y) < 0.05 && Math.abs(i.x - i_mcp.x) > 0.1) {
+    if (!f2) return "H";
+    return "G";
+  }
+
+  return null; // found nothing
 };

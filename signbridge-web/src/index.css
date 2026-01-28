@@ -1,38 +1,85 @@
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@400;600&display=swap');
 
-  color-scheme: dark;
-  color: rgba(255, 255, 255, 0.87);
+/*
+  Global Styles
+  I switched to Dark Mode because it looks way cooler and is better for coding late at night!
+  (Plus it saves battery... I think?)
+*/
+:root {
+  --font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  /* Coder font! */
+  --bg-color: #1e1e1e;
+  /* VS Code dark gray */
+  --text-color: #e0e0e0;
+  --panel-bg: #2d2d2d;
+  --primary-color: #61dafb;
+  /* React Blue */
+  --accent-color: #98c379;
+  /* Green for success */
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-  /* Deep Blue/Slate Gradient */
-  background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0f172a 100%);
-  overflow: hidden;
-  /* Prevent body scroll, use container scroll */
+  padding: 0;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: var(--font-family);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
+/* why is centering stuff in css so hard?? */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+/* Simple Panel - No Glass */
+.simple-panel {
+  background: var(--panel-bg);
+  border: 1px solid #444;
+  /* Darker border */
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  /* Stronger shadow for dark mode */
+  margin-bottom: 20px;
 }
 
-::-webkit-scrollbar-thumb {
-  background: #475569;
-  border-radius: 4px;
+/* Simple Button */
+button {
+  cursor: pointer;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+/* Caret for typewriter */
+.caret {
+  display: inline-block;
+  width: 10px;
+  /* Thicker "Block" cursor like in a terminal */
+  height: 1em;
+  background-color: var(--primary-color);
+  vertical-align: bottom;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+}
+
+/*
+  Flexbox is confusing but this aligns the camera and the sidebar
+  Stacked on mobile, side-by-side on desktop
+*/
+@media (max-width: 900px) {
+  .container {
+    padding: 10px;
+  }
 }

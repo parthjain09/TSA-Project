@@ -1,61 +1,82 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 
 const createWindow = () => {
-    // Create the browser window.
     const mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
+        backgroundColor: '#0a0a0f',
         webPreferences: {
             nodeIntegration: true,
-            contextIsolation: false, // For simple MVP; consider contextBridge for production
-            webSecurity: false // Allow loading local resources (CORS fix for file://)
+            contextIsolation: false,
+            webSecurity: false
         },
     });
 
-    // Load the index.html of the app.
-    // In dev, load localhost. In prod, load built file.
     const isDev = !app.isPackaged;
-
     if (isDev) {
         mainWindow.loadURL('http://localhost:5175');
-        // Open the DevTools.
         mainWindow.webContents.openDevTools();
     } else {
         mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
-        // DEBUG: Open DevTools in production to see errors
-        mainWindow.webContents.openDevTools();
     }
 };
 
-// Disable GPU Acceleration to prevent black screen issues
-app.disableHardwareAcceleration();
+// app.disableHardwareAcceleration(); // Re-enabled for better video rendering performance
 
-// This method will be called when Electron has finished initialization
 app.whenReady().then(() => {
-    // Permission handling
-    const session = require('electron').session;
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-        if (permission === 'media') {
+        const allowedPermissions = ['media', 'camera', 'microphone'];
+        if (allowedPermissions.includes(permission)) {
+            console.log(`Allowing permission: ${permission}`);
             return callback(true);
         }
         callback(false);
     });
 
+    session.defaultSession.setPermissionCheckHandler((webContents, permission, origin) => {
+        const allowedPermissions = ['media', 'camera', 'microphone'];
+        if (allowedPermissions.includes(permission)) return true;
+        return false;
+    });
+
+    session.defaultSession.on('will-download', (event, item, webContents) => {
+        // Set the save path, making Electron use the default Save As dialog
+        // or just save it automatically to the downloads folder.
+        const fileName = item.getFilename();
+        const savePath = path.join(app.getPath('downloads'), fileName);
+
+        item.setSavePath(savePath);
+        console.log(`Downloading ${fileName} to ${savePath}`);
+
+        item.on('updated', (event, state) => {
+            if (state === 'interrupted') {
+                console.log('Download is interrupted but can be resumed');
+            } else if (state === 'progressing') {
+                if (item.isPaused()) {
+                    console.log('Download is paused');
+                } else {
+                    console.log(`Received bytes: ${item.getReceivedBytes()}`);
+                }
+            }
+        });
+
+        item.once('done', (event, state) => {
+            if (state === 'completed') {
+                console.log('Download successfully');
+            } else {
+                console.log(`Download failed: ${state}`);
+            }
+        });
+    });
+
     createWindow();
 
     app.on('activate', () => {
-        // On OS X it's common to re-create a window in the app when the
-        // dock icon is clicked and there are no other windows open.
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow();
-        }
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
 });
 
-// Quit when all windows are closed, except on macOS.
 app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
+    if (process.platform !== 'darwin') app.quit();
 });
