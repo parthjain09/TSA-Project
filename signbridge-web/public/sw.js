@@ -1,4 +1,4 @@
-// Basic Service Worker for PWA
+
 self.addEventListener('install', (e) => {
     console.log('[Service Worker] Install');
 });
