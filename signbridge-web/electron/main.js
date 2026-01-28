@@ -28,8 +28,20 @@ const createWindow = () => {
     }
 };
 
+// Disable GPU Acceleration to prevent black screen issues
+app.disableHardwareAcceleration();
+
 // This method will be called when Electron has finished initialization
 app.whenReady().then(() => {
+    // Permission handling
+    const session = require('electron').session;
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+        if (permission === 'media') {
+            return callback(true);
+        }
+        callback(false);
+    });
+
     createWindow();
 
     app.on('activate', () => {
