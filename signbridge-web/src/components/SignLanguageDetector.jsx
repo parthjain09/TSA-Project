@@ -1,19 +1,102 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { FilesetResolver, HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
-import { Box, Typography, Paper, CircularProgress, Button, Switch, FormControlLabel, Chip, Divider, Fade, Zoom } from '@mui/material';
-import ReplayIcon from '@mui/icons-material/Replay';
-import InfoIcon from '@mui/icons-material/Info';
+import { Box, Typography, Paper, CircularProgress, Button, Switch, FormControlLabel, Chip, Divider, Grid, Paper as MuiPaper } from '@mui/material';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { recognizeGesture } from '../utils/gestureRecognition';
-import { addExample, predict, getClassInfo } from '../utils/classifier';
+import { predict } from '../utils/classifier';
 import TrainingPanel from './TrainingPanel';
 
+const SIGN_DESCRIPTIONS = {
+    A: "Fist, thumb on side",
+    B: "Flat palm, thumb tucked",
+    C: "Cup hand C-shape",
+    D: "Index finger up",
+    E: "Fingers curled to thumb",
+    F: "OK sign (Index+Thumb)",
+    G: "Index finger points left",
+    H: "Index+Middle point left",
+    I: "Pinky finger up",
+    J: "Pinky draws a J",
+    K: "Peace sign, thumb mid",
+    L: "L-shape (Thumb+Index)",
+    M: "3 fingers over thumb",
+    N: "2 fingers over thumb",
+    O: "Fingertips touch thumb",
+    P: "Upside down K",
+    Q: "Upside down G",
+    R: "Crossed fingers",
+    S: "Fist, thumb over fingers",
+    T: "Thumb between index/mid",
+    U: "Index+Middle up together",
+    V: "Peace sign",
+    W: "3 fingers up",
+    X: "Index finger hooked",
+    Y: "Thumb+Pinky out",
+    Z: "Index finger draws Z"
+};
+
+const ConversePanel = () => {
+    const [text, setText] = useState("");
+
+    return (
+        <Box sx={{ p: 4, width: '100%', maxWidth: 800, mx: 'auto', textAlign: 'center' }}>
+            <Typography variant="h5" sx={{ mb: 3, fontWeight: 700, color: '#60a5fa' }}>Text-to-Sign Visualizer</Typography>
+            <MuiPaper sx={{ p: 2, mb: 4, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 4 }}>
+                <input
+                    type="text"
+                    value={text}
+                    onChange={(e) => setText(e.target.value.toUpperCase())}
+                    placeholder="Type here to see how to sign it..."
+                    style={{
+                        width: '100%',
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'white',
+                        fontSize: '1.5rem',
+                        textAlign: 'center',
+                        outline: 'none',
+                        fontFamily: 'monospace'
+                    }}
+                />
+            </MuiPaper>
+
+            <Grid container spacing={2} justifyContent="center">
+                {text.split('').map((char, i) => (
+                    <Grid item key={i}>
+                        {char === ' ' ? (
+                            <Box sx={{ width: 40 }} /> // Spacer
+                        ) : (
+                            <MuiPaper sx={{
+                                p: 2,
+                                width: 100,
+                                height: 120,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                bgcolor: 'rgba(255,255,255,0.02)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: 3
+                            }}>
+                                <Typography variant="h3" sx={{ fontWeight: 800, color: 'white', mb: 1 }}>{char}</Typography>
+                                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', lineHeight: 1.1 }}>
+                                    {SIGN_DESCRIPTIONS[char] || "Spelling"}
+                                </Typography>
+                            </MuiPaper>
+                        )}
+                    </Grid>
+                ))}
+            </Grid>
+        </Box>
+    );
+};
+
 const SignLanguageDetector = () => {
+    // These refs keep track of the webcam and canvas without causing too many re-renders
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
-    // This ref stores the latest hand points so we can save them for training later
     const currentLandmarksRef = useRef(null);
 
-    // State variables for the app
     const [webcamRunning, setWebcamRunning] = useState(false);
     const [loading, setLoading] = useState(true);
     const [handLandmarker, setHandLandmarker] = useState(null);
@@ -21,19 +104,34 @@ const SignLanguageDetector = () => {
     const [confidence, setConfidence] = useState(0);
     const [gestureHistory, setGestureHistory] = useState([]);
 
-    // Sentence Engine State
+    // Sentence Translation Engine - This was the hardest part to get right!
+    // We have to "hold" the sign for a second so it doesn't type by accident.
     const [sentence, setSentence] = useState("");
     const [currentWord, setCurrentWord] = useState("");
     const [lastChar, setLastChar] = useState("");
     const [holdStartTime, setHoldStartTime] = useState(0);
-    const LETTER_HOLD_THRESHOLD = 1200; // 1.2s to type a letter
+    const TRANSLATION_HOLD_THRESHOLD = 600; // Faster typing (600ms)
 
     const [trainingMode, setTrainingMode] = useState(false);
+    const [isMeetingMode, setIsMeetingMode] = useState(false);
+    const [isConverseMode, setIsConverseMode] = useState(false); // New Converse Mode
     const [cameraError, setCameraError] = useState(null);
+    // TODO: Add more pre-trained gesture models for full phrases
     const [classCounts, setClassCounts] = useState({});
     const [deviceId, setDeviceId] = useState(undefined);
     const [devices, setDevices] = useState([]);
-    const [diag, setDiag] = useState({ state: 'Idle', track: 'None', ready: 0, res: '0x0', hands: false });
+    const [diag, setDiag] = useState({ state: 'Idle', res: '0x0', hands: false, raw: '---', handedness: 'None' });
+
+    // Download Transcript Function
+    const downloadTranscript = () => {
+        const element = document.createElement("a");
+        const file = new Blob([sentence || "No text recorded."], { type: 'text/plain' });
+        element.href = URL.createObjectURL(file);
+        element.download = `SignBridge_Transcript_${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.txt`;
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+    };
 
     const handleDevices = useCallback((mediaDevices) => {
         setDevices(mediaDevices.filter(({ kind }) => kind === "videoinput"));
@@ -43,26 +141,22 @@ const SignLanguageDetector = () => {
         navigator.mediaDevices.enumerateDevices().then(handleDevices);
     }, [handleDevices]);
 
-    // load model
-    // makes the hand mesh
     useEffect(() => {
         const initHandLandmarker = async () => {
             try {
                 const vision = await FilesetResolver.forVisionTasks(
                     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
                 );
-
-                // setup detector
                 const landmarker = await HandLandmarker.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-                        delegate: "GPU" // fast mode
+                        delegate: "GPU" // Try GPU for better performance
                     },
                     runningMode: "VIDEO",
-                    numHands: 1,
-                    minHandDetectionConfidence: 0.7,
-                    minHandPresenceConfidence: 0.7,
-                    minTrackingConfidence: 0.7
+                    numHands: 2,
+                    minHandDetectionConfidence: 0.6, // Lower threshold for fewer drops
+                    minHandPresenceConfidence: 0.6,
+                    minTrackingConfidence: 0.6
                 });
                 setHandLandmarker(landmarker);
                 setLoading(false);
@@ -75,69 +169,22 @@ const SignLanguageDetector = () => {
     }, []);
 
     const startCamera = async () => {
-        setCameraError(null);
-        setDiag(prev => ({ ...prev, state: 'Requesting...' }));
+        setDiag(prev => ({ ...prev, state: 'Connecting...' }));
         try {
             const constraints = {
-                video: deviceId ? {
-                    deviceId: { exact: deviceId },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                } : {
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                }
+                video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" }
             };
-            console.log("Requesting camera with constraints:", constraints);
-
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            console.log("Stream acquired:", stream.id);
-
-            const video = videoRef.current;
-            if (video) {
-                video.srcObject = stream;
-
-                // Track metadata and readiness
-                const track = stream.getVideoTracks()[0];
-                setDiag(prev => ({
-                    ...prev,
-                    state: 'Attaching...',
-                    track: track ? `${track.label} (${track.readyState})` : 'No Track'
-                }));
-
-                // Force play as soon as possible
-                video.onloadedmetadata = () => {
-                    console.log("Metadata loaded. Forcing play.");
-                    setDiag(prev => ({ ...prev, res: `${video.videoWidth}x${video.videoHeight}`, state: 'Metadata OK' }));
-                    video.play().catch(e => console.error("Auto-play failed:", e));
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.onloadedmetadata = () => {
+                    setDiag(prev => ({ ...prev, res: `${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`, state: 'Streaming' }));
+                    videoRef.current.play();
                 };
-
-                video.onloadeddata = () => {
-                    console.log("Data loaded. Stream should be visible.");
-                    setDiag(prev => ({ ...prev, state: 'Streaming', ready: video.readyState }));
-                    video.play();
-                };
-
-                // Fallback: If neither event fires in 2 seconds, force it
-                setTimeout(() => {
-                    if (video && video.paused) {
-                        console.log("Fallback: Forcing video play");
-                        video.play();
-                        setDiag(prev => ({ ...prev, state: 'Forced Play', ready: video.readyState }));
-                    }
-                }, 2000);
             }
         } catch (err) {
-            console.error("Camera Error:", err);
             setCameraError(`${err.name}: ${err.message}`);
             setWebcamRunning(false);
-            setDiag(prev => ({ ...prev, state: `Err: ${err.name}` }));
-
-            // Fallback if specific ID failed
-            if (deviceId) {
-                console.log("Retrying with generic constraints...");
-                setDeviceId(undefined);
-            }
         }
     };
 
@@ -153,85 +200,66 @@ const SignLanguageDetector = () => {
         return () => stopCamera();
     }, [webcamRunning, deviceId]);
 
-    const handleAddClass = (label) => {
-        const newCounts = { ...classCounts };
-        if (!newCounts[label]) newCounts[label] = 0;
-        setClassCounts(newCounts);
-    };
-
-    const handleCapture = (label) => {
-        if (currentLandmarksRef.current) {
-            addExample(currentLandmarksRef.current, label);
-            setClassCounts(getClassInfo());
-        }
-    };
-
-    // Temporal smoothing: Use majority voting from last 5 frames
     const smoothGesture = (newGesture, newConfidence) => {
-        if (!newGesture || newGesture === '...' || newGesture === 'Ready' || newGesture === 'Position Hand') {
-            setGestureHistory([]);
+        if (!newGesture || ["...", "Ready", "Position Hand"].includes(newGesture)) {
+            // Only clear history if we've lost tracking for a bit
+            if (gestureHistory.length > 0) {
+                const updatedHistory = [...gestureHistory].slice(1);
+                setGestureHistory(updatedHistory);
+            }
             return { gesture: newGesture, confidence: newConfidence };
         }
 
-        const updatedHistory = [...gestureHistory, { gesture: newGesture, confidence: newConfidence }].slice(-5);
+        const updatedHistory = [...gestureHistory, { gesture: newGesture, confidence: newConfidence }].slice(-6); // Smaller buffer for speed
         setGestureHistory(updatedHistory);
 
-        // Count occurrences
-        const gestureCounts = {};
-        let totalConfidence = 0;
+        const counts = {};
+        const confs = {};
         updatedHistory.forEach(item => {
-            gestureCounts[item.gesture] = (gestureCounts[item.gesture] || 0) + 1;
-            if (item.gesture === newGesture) totalConfidence += item.confidence;
+            counts[item.gesture] = (counts[item.gesture] || 0) + 1;
+            confs[item.gesture] = (confs[item.gesture] || 0) + item.confidence;
         });
 
-        // Find most common gesture
-        const mostCommon = Object.keys(gestureCounts).reduce((a, b) =>
-            gestureCounts[a] > gestureCounts[b] ? a : b
-        );
+        const mostCommon = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
 
-        // Only update if gesture appears in at least 3 of last 5 frames
-        if (gestureCounts[mostCommon] >= 3) {
-            const avgConfidence = Math.round(totalConfidence / gestureCounts[newGesture]);
-            return { gesture: mostCommon, confidence: avgConfidence };
+        // Require 4/6 frames for faster response
+        if (counts[mostCommon] >= 4) {
+            return { gesture: mostCommon, confidence: Math.round(confs[mostCommon] / counts[mostCommon]) };
         }
-
-        return { gesture: gesture, confidence: confidence }; // Keep previous
+        return { gesture, confidence };
     };
 
-    // sentence typer
-    // waits 1.2s to type
-    const processSentenceEngine = (detectedGesture) => {
-        // checks for letters
-        if (!detectedGesture || detectedGesture === '...' || detectedGesture === 'Ready' || detectedGesture === 'Detecting...') {
+    const processTranslation = (detected) => {
+        if (!detected || ["...", "Ready", "Position Hand"].includes(detected)) {
             setHoldStartTime(0);
             return;
         }
 
-        // Special Gestures
-        if (detectedGesture === 'Hello') return; // Ignore greeting
-
-        // Check if same gesture is being held
-        if (detectedGesture === lastChar) {
+        if (detected === lastChar) {
             if (holdStartTime === 0) {
                 setHoldStartTime(Date.now());
             } else {
-                const heldDuration = Date.now() - holdStartTime;
-                if (heldDuration > LETTER_HOLD_THRESHOLD) {
-                    // Action Triggered!
-                    if (detectedGesture === 'Space' || detectedGesture === 'B') { // B/Open Palm as Space
-                        setSentence(prev => prev + (currentWord ? currentWord + " " : ""));
-                        setCurrentWord("");
-                        // Haptic/Visual feedback could go here
+                const holdDuration = Date.now() - holdStartTime;
+                if (holdDuration > TRANSLATION_HOLD_THRESHOLD) {
+                    if (detected === 'B' || detected === 'Space') {
+                        // Word separator
+                        if (currentWord) {
+                            setSentence(prev => prev + currentWord + " ");
+                            setCurrentWord("");
+                        } else if (!sentence.endsWith(" ")) {
+                            setSentence(prev => prev + " ");
+                        }
                     } else {
-                        setCurrentWord(prev => prev + detectedGesture);
+                        // Character addition
+                        setCurrentWord(prev => prev + detected);
                     }
-                    setLastChar(""); // Reset to force re-hold
+                    // Reset to prevent double-typing the same instance
+                    setLastChar("");
                     setHoldStartTime(0);
                 }
             }
         } else {
-            // New gesture detected, reset timer
-            setLastChar(detectedGesture);
+            setLastChar(detected);
             setHoldStartTime(Date.now());
         }
     };
@@ -241,212 +269,297 @@ const SignLanguageDetector = () => {
             const video = videoRef.current;
             const canvas = canvasRef.current;
             const ctx = canvas.getContext("2d");
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
 
-            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-            }
+            try {
+                const startTimeMs = performance.now();
+                const results = handLandmarker.detectForVideo(video, startTimeMs);
 
-            const results = handLandmarker.detectForVideo(video, performance.now());
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            if (results.landmarks?.length > 0) {
-                if (!diag.hands) setDiag(prev => ({ ...prev, hands: true }));
-                const landmarks = results.landmarks[0];
-                currentLandmarksRef.current = landmarks;
+                if (results.landmarks?.length > 0) {
+                    const drawingUtils = new DrawingUtils(ctx);
+                    let detectedGesture = null;
+                    let detectedHand = "Right";
 
-                const drawingUtils = new DrawingUtils(ctx);
-                drawingUtils.drawConnectors(landmarks, HandLandmarker.HAND_CONNECTIONS, { color: "#4facfe80", lineWidth: 3 });
-                drawingUtils.drawLandmarks(landmarks, { color: "#00f2fe80", lineWidth: 1, radius: 2 });
+                    // Process all detected hands
+                    for (let i = 0; i < results.landmarks.length; i++) {
+                        const landmarks = results.landmarks[i];
+                        drawingUtils.drawConnectors(landmarks, HandLandmarker.HAND_CONNECTIONS, { color: "#60a5fa", lineWidth: 3 });
+                        drawingUtils.drawLandmarks(landmarks, { color: "#ffffff", lineWidth: 1, radius: 2 });
 
-                if (Object.keys(classCounts).length > 0) {
-                    // check AI
-                    const res = await predict(landmarks);
-                    if (res?.confidences[res.label] > 0.7) {
-                        const s = smoothGesture(res.label, Math.round(res.confidences[res.label] * 100));
-                        setGesture(s.gesture);
-                        setConfidence(s.confidence);
-                        processSentenceEngine(s.gesture);
+                        const hand = results.handedness?.[i]?.[0]?.categoryName || "Right";
+                        const raw = recognizeGesture(landmarks, hand);
+
+                        if (raw) {
+                            detectedGesture = raw;
+                            detectedHand = hand;
+                        }
+                    }
+
+                    if (detectedGesture) {
+                        // Valid gesture detected
+                        setDiag(prev => ({ ...prev, hands: true, handedness: detectedHand, raw: detectedGesture, state: 'Translating' }));
+                        const final = smoothGesture(detectedGesture, 95);
+                        setGesture(final.gesture);
+                        setConfidence(final.confidence);
+                        processTranslation(final.gesture);
                     } else {
-                        // bad match
-                        setGesture("...");
-                        setConfidence(0);
+                        // No specific gesture recognized
+                        setGesture("Unknown Sign");
+                        setHoldStartTime(0);
                     }
                 } else {
-                    // check geometry
-                    // get current hand
-                    let hand = "Right";
-                    // get hand info
-                    if (results.handedness && results.handedness.length > 0) {
-                        hand = results.handedness[0][0].categoryName;
-                    }
-
-                    // run math
-                    const g = recognizeGesture(landmarks, hand);
-                    const val = g || "Position Hand";
-
-                    // trust the math
-                    const conf = g ? 95 : 0;
-
-                    // smooth it
-                    const final = smoothGesture(val, conf);
-                    setGesture(final.gesture);
-                    setConfidence(final.confidence);
-
-                    // add to sentence
-                    processSentenceEngine(final.gesture);
+                    setDiag(prev => ({ ...prev, hands: false, raw: '---', state: 'Scanning...' }));
+                    setGesture(webcamRunning ? "Position Hand" : "Ready");
+                    setConfidence(0);
+                    setGestureHistory([]);
+                    setHoldStartTime(0);
                 }
-            } else {
-                // lost hand
-                if (diag.hands) setDiag(prev => ({ ...prev, hands: false }));
-                currentLandmarksRef.current = null;
-                setGestureHistory([]); // Reset history when no hand
-                setGesture(webcamRunning ? "Position Hand" : "Ready");
-                setConfidence(0);
+            } catch (err) {
+                console.error("Prediction Error:", err);
+                setDiag(prev => ({ ...prev, state: 'Error: ' + err.message }));
             }
         }
-
         if (webcamRunning) requestAnimationFrame(predictFrame);
     };
 
     useEffect(() => {
-        if (webcamRunning) {
-            const frameId = requestAnimationFrame(predictFrame);
-            return () => cancelAnimationFrame(frameId);
-        }
-    }, [webcamRunning, handLandmarker, classCounts]);
+        if (webcamRunning) requestAnimationFrame(predictFrame);
+    }, [webcamRunning, handLandmarker]);
 
     return (
-        <Box className="container">
-            {/* Header: Basic and Clean */}
-            <Typography variant="h4" align="center" gutterBottom style={{ color: 'var(--primary-color)', fontFamily: 'var(--font-family)' }}>
-                SignLanguage Detector v1.0
-            </Typography>
+        <Box sx={{
+            minHeight: '100vh',
+            bgcolor: '#050510',
+            p: isMeetingMode ? 0 : 4,
+            color: 'white',
+            display: 'flex',
+            flexDirection: 'column',
+            transition: 'all 0.3s ease',
+            fontFamily: '"Outfit", "Inter", sans-serif'
+        }}>
+            {/* Header - Hidden in Meeting Mode */}
+            {/* Header - Hidden in Meeting Mode */}
+            {!isMeetingMode && (
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 4, gap: 2 }}>
+                    <Typography variant="h4" sx={{
+                        fontWeight: 800,
+                        background: 'linear-gradient(to right, #60a5fa, #a78bfa)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent'
+                    }}>
+                        SignBridge AI
+                    </Typography>
 
-            <Box display="flex" flexDirection={{ xs: 'column', md: 'row' }} gap={2}>
-                {/* Main Camera View - No Glass, Simple Border */}
-                <Box flex={1} className="simple-panel" display="flex" flexDirection="column" alignItems="center">
-                    <Box position="relative" width="100%" style={{ backgroundColor: '#000', borderRadius: '4px', overflow: 'hidden' }}>
-                        {/* Camera & Overlay */}
-                        <video
-                            ref={videoRef}
-                            style={{
-                                width: '100%',
-                                height: 'auto',
-                                display: webcamRunning ? 'block' : 'none',
-                                transform: 'scaleX(-1)' // Mirror effect
-                            }}
-                            autoPlay
-                            playsInline
-                        />
-                        <canvas
-                            ref={canvasRef}
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                width: '100%',
-                                height: '100%',
-                                transform: 'scaleX(-1)'
-                            }}
-                        />
-                        {/* Simple "Loading" Text if needed */}
-                        {loading && webcamRunning && (
-                            <Box position="absolute" top="50%" left="50%" style={{ transform: 'translate(-50%, -50%)', color: 'white' }}>
-                                Loading Model...
-                            </Box>
-                        )}
-
-                        {/* Simple Result Overlay */}
-                        <Box
-                            position="absolute"
-                            bottom={10}
-                            left="50%"
-                            style={{
-                                transform: 'translateX(-50%)',
-                                backgroundColor: 'rgba(0,0,0,0.7)',
-                                padding: '10px 20px',
-                                borderRadius: '4px',
-                                textAlign: 'center'
-                            }}
-                        >
-                            <Typography variant="h5" style={{ color: '#fff' }}>
-                                {gesture}
-                            </Typography>
-                            <Typography variant="caption" style={{ color: '#ccc' }}>
-                                Confidence: {confidence}%
-                            </Typography>
-                        </Box>
-                    </Box>
-
-                    {/* Controls: Standard Buttons */}
-                    <Box mt={2} display="flex" gap={2}>
+                    <Box sx={{ display: 'flex', bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 3, p: 0.5, mx: 4 }}>
                         <Button
-                            variant="contained"
-                            color={webcamRunning ? "secondary" : "primary"}
-                            onClick={() => setWebcamRunning(!webcamRunning)}
+                            variant={!isConverseMode ? "contained" : "text"}
+                            onClick={() => setIsConverseMode(false)}
+                            sx={{ borderRadius: 2.5, px: 3, textTransform: 'none', color: !isConverseMode ? 'white' : 'rgba(255,255,255,0.5)' }}
                         >
-                            {webcamRunning ? "Stop Camera" : "Start Camera"}
+                            Translate
+                        </Button>
+                        <Button
+                            variant={isConverseMode ? "contained" : "text"}
+                            onClick={() => setIsConverseMode(true)}
+                            sx={{ borderRadius: 2.5, px: 3, textTransform: 'none', color: isConverseMode ? 'white' : 'rgba(255,255,255,0.5)' }}
+                        >
+                            Converse
                         </Button>
                     </Box>
 
-                    {/* Sentence Output: Simple Text Box */}
-                    <Paper elevation={0} style={{ width: '100%', marginTop: '20px', padding: '15px', backgroundColor: '#333', border: '1px solid #555' }}>
-                        <Typography variant="subtitle2" style={{ color: '#aaa', marginBottom: '5px' }}>
-                            DETECTED SENTENCE:
+                    <Box sx={{ flexGrow: 1 }} />
+                    <Button variant="contained" onClick={() => setWebcamRunning(!webcamRunning)}
+                        disabled={isConverseMode}
+                        sx={{
+                            background: webcamRunning ? '#ef4444' : 'linear-gradient(to right, #34d399, #059669)',
+                            textTransform: 'none',
+                            borderRadius: '12px',
+                            px: 4,
+                            opacity: isConverseMode ? 0 : 1
+                        }}>
+                        {webcamRunning ? "Stop Camera" : "Launch Translation"}
+                    </Button>
+                </Box>
+            )}
+
+            <Grid container spacing={isMeetingMode ? 0 : 4} sx={{ flexGrow: 1, maxWidth: 1400, mx: 'auto' }}>
+                {/* Left: Main Interaction Area */}
+                <Grid item xs={12} md={isMeetingMode ? 12 : 9}>
+                    <MuiPaper elevation={0} sx={{
+                        position: 'relative',
+                        bgcolor: 'rgba(255, 255, 255, 0.05)',
+                        borderRadius: isMeetingMode ? 0 : 6,
+                        overflow: 'hidden',
+                        height: isMeetingMode ? '75vh' : '550px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: isMeetingMode ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                        transition: 'all 0.3s ease'
+                    }}>
+                        {isConverseMode ? (
+                            <ConversePanel />
+                        ) : !webcamRunning ? (
+                            <Box sx={{ textAlign: 'center', zIndex: 5 }}>
+                                <Typography variant="h5" sx={{ mb: 3, opacity: 0.6, fontWeight: 500 }}>
+                                    Neural Sign Recognition System
+                                </Typography>
+                                <Button
+                                    variant="contained"
+                                    size="large"
+                                    onClick={() => setWebcamRunning(true)}
+                                    sx={{
+                                        bgcolor: '#60a5fa',
+                                        px: 6,
+                                        py: 2,
+                                        borderRadius: 4,
+                                        fontSize: '1.1rem',
+                                        textTransform: 'none',
+                                        boxShadow: '0 8px 25px rgba(96, 165, 250, 0.3)',
+                                        '&:hover': { bgcolor: '#3b82f6' }
+                                    }}
+                                >
+                                    Activate Camera & Sensors
+                                </Button>
+
+                                <Box sx={{ mt: 6, opacity: 0.4 }}>
+                                    <Typography variant="body2">Privacy Layer: Active (Local processing only)</Typography>
+                                    <Typography variant="body2">Language: ASL Alphabet v2.1</Typography>
+                                </Box>
+                            </Box>
+                        ) : (
+                            <>
+                                <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} autoPlay playsInline muted />
+                                <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', transform: 'scaleX(-1)' }} />
+
+                                {/* Detection Overlay */}
+                                <Box sx={{
+                                    position: 'absolute',
+                                    bottom: 40,
+                                    left: '50%',
+                                    transform: 'translateX(-50%)',
+                                    bgcolor: 'rgba(0,0,0,0.85)',
+                                    px: 6,
+                                    py: 2,
+                                    borderRadius: 4,
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    textAlign: 'center',
+                                    zIndex: 10
+                                }}>
+                                    <Typography variant="h3" sx={{ fontWeight: 800, color: '#fff' }}>{gesture}</Typography>
+                                    {holdStartTime > 0 && gesture !== "Position Hand" && (
+                                        <LinearProgress
+                                            variant="determinate"
+                                            value={Math.min(100, ((Date.now() - holdStartTime) / TRANSLATION_HOLD_THRESHOLD) * 100)}
+                                            sx={{ mt: 1.5, height: 6, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.1)' }}
+                                        />
+                                    )}
+                                </Box>
+
+                                <Button
+                                    onClick={() => setWebcamRunning(false)}
+                                    sx={{ position: 'absolute', top: 20, right: 20, color: 'rgba(255,255,255,0.3)', textTransform: 'none' }}
+                                >
+                                    Stop Camera
+                                </Button>
+                            </>
+                        )}
+                    </MuiPaper>
+
+                    {/* Translation Result Bar */}
+                    <MuiPaper sx={{
+                        mt: 3,
+                        p: 3,
+                        bgcolor: 'rgba(255,255,255,0.03)',
+                        borderRadius: 4,
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between'
+                    }}>
+                        <Typography variant="h5" sx={{ fontFamily: 'monospace', opacity: sentence ? 1 : 0.4 }}>
+                            {sentence || "Translation will appear here..."}
+                            <Box component="span" sx={{ bgcolor: '#60a5fa', width: '2px', height: '1em', display: 'inline-block', ml: 1, animation: 'blink 1s infinite' }} />
                         </Typography>
-                        <Box display="flex" alignItems="center">
-                            <Typography variant="h6" style={{ fontFamily: 'var(--font-family)', flexGrow: 1, color: '#fff' }}>
-                                {sentence}<span className="caret"></span>
-                            </Typography>
-                            <Button size="small" variant="outlined" onClick={() => { setSentence(""); setCurrentWord(""); }}>
-                                CLEAR
+                        <Stack direction="row" spacing={1}>
+                            <Button size="small" onClick={() => setSentence("")} sx={{ color: 'rgba(255,255,255,0.5)', textTransform: 'none' }}>Clear</Button>
+                            {isMeetingMode && (
+                                <Button size="small" variant="outlined" onClick={downloadTranscript} sx={{ color: '#60a5fa', borderColor: '#60a5fa', textTransform: 'none' }}>
+                                    Save Notes
+                                </Button>
+                            )}
+                            <Button size="small" variant="contained" onClick={() => setIsMeetingMode(!isMeetingMode)} sx={{ bgcolor: 'rgba(255,255,255,0.1)', color: 'white', textTransform: 'none' }}>
+                                {isMeetingMode ? "Exit Fullscreen" : "Meeting Mode"}
                             </Button>
-                        </Box>
-                        <Typography variant="caption" color="textSecondary">
-                            Word Buffer: {currentWord}...
-                        </Typography>
-                    </Paper>
+                        </Stack>
+                    </MuiPaper>
+                </Grid>
 
-                </Box>
+                {/* Right: Sidebar */}
+                {!isMeetingMode && (
+                    <Grid item xs={12} md={3}>
+                        <Stack spacing={3}>
+                            <MuiPaper sx={{ p: 3, bgcolor: 'rgba(255, 255, 255, 0.03)', borderRadius: 5, border: '1px solid rgba(255,255,255,0.1)' }}>
+                                <Typography variant="h6" sx={{ mb: 2, fontWeight: 700 }}>Quick Key</Typography>
+                                <Divider sx={{ mb: 2, opacity: 0.1 }} />
+                                <Stack spacing={2}>
+                                    <Box>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>A-Z: <Typography component="span" variant="body2" sx={{ opacity: 0.7, fontWeight: 400 }}>Spelling</Typography></Typography>
+                                    </Box>
+                                    <Box>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Space: <Typography component="span" variant="body2" sx={{ opacity: 0.7, fontWeight: 400 }}>Open Palm (B)</Typography></Typography>
+                                    </Box>
+                                    <Box>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Hold: <Typography component="span" variant="body2" sx={{ opacity: 0.7, fontWeight: 400 }}>1.2s to type</Typography></Typography>
+                                    </Box>
+                                </Stack>
+                                <Divider sx={{ my: 3, opacity: 0.1 }} />
+                                <FormControlLabel
+                                    control={<Switch size="small" checked={trainingMode} onChange={(e) => setTrainingMode(e.target.checked)} />}
+                                    label={<Typography variant="body2">Dev Mode</Typography>}
+                                />
+                            </MuiPaper>
 
-                {/* Info Panel: Initial Student Guide */}
-                <Box flexBasis={{ xs: '100%', md: '250px' }} className="simple-panel">
-                    <Typography variant="h6" gutterBottom>
-                        Quick Key
-                    </Typography>
-                    <Divider style={{ marginBottom: '10px' }} />
+                            {trainingMode && (
+                                <MuiPaper sx={{ p: 3, bgcolor: '#000', borderRadius: 4, border: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <Typography variant="caption" sx={{ color: '#60a5fa', fontWeight: 800, display: 'block', mb: 1 }}>DIAGNOSTICS</Typography>
+                                    <Stack spacing={1}>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <Typography variant="caption" sx={{ opacity: 0.5 }}>Hand:</Typography>
+                                            <Typography variant="caption" sx={{ color: diag.hands ? '#34d399' : '#ef4444' }}>{diag.hands ? diag.handedness : 'No'}</Typography>
+                                        </Box>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <Typography variant="caption" sx={{ opacity: 0.5 }}>Raw:</Typography>
+                                            <Typography variant="caption">{diag.raw}</Typography>
+                                        </Box>
+                                    </Stack>
+                                    <Box sx={{ mt: 2 }}>
+                                        <TrainingPanel
+                                            classCounts={classCounts}
+                                            onAddClass={addClass}
+                                            onCapture={captureExample}
+                                        />
+                                    </Box>
+                                </MuiPaper>
+                            )}
+                        </Stack>
+                    </Grid>
+                )}
+            </Grid>
 
-                    <Typography variant="body2" paragraph>
-                        <strong>A-Z:</strong> Spelling
-                    </Typography>
-                    <Typography variant="body2" paragraph>
-                        <strong>Space:</strong> Open Palm (B)
-                    </Typography>
-                    <Typography variant="body2" paragraph>
-                        <strong>Hold:</strong> 1.2s to type
-                    </Typography>
-
-                    <Divider style={{ margin: '10px 0' }} />
-                    {/* Training Mode Toggle - Hidden/Basic */}
-                    <FormControlLabel
-                        control={<Switch size="small" checked={trainingMode} onChange={(e) => setTrainingMode(e.target.checked)} />}
-                        label={<Typography variant="caption">Dev Mode</Typography>}
-                    />
-
-                    {trainingMode && (
-                        <Box mt={2}>
-                            <TrainingPanel
-                                addExample={handleCapture}
-                                classCounts={classCounts}
-                                clearAll={handleClearAll}
-                            />
-                        </Box>
-                    )}
-                </Box>
-            </Box>
+            <style>{`
+                @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+            `}</style>
         </Box>
     );
 };
+
+const Stack = ({ children, spacing }) => (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: spacing }}>{children}</Box>
+);
 
 export default SignLanguageDetector;

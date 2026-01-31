@@ -18,12 +18,13 @@ import AndroidIcon from '@mui/icons-material/Android';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import SignLanguageDetector from './components/SignLanguageDetector';
 
-// Premium Dark Theme with Glassmorphism
+// This is our main UI theme. I went with a dark mode because it looks cooler for a tech project.
+// We used "Glassmorphism" for the panels to make it look modern and sleek for the judges.
 const theme = createTheme({
   palette: {
     mode: 'dark',
-    primary: { main: '#60a5fa' },
-    secondary: { main: '#f472b6' },
+    primary: { main: '#60a5fa' }, // Light blue for a friendly feel
+    secondary: { main: '#f472b6' }, // Pink for some nice contrast
     background: { default: '#0f0f23', paper: 'rgba(255, 255, 255, 0.03)' },
   },
   typography: {
@@ -94,7 +95,7 @@ function LandingPage({ startDownload, setMobileGuide }) {
       <Container maxWidth="lg" sx={{ pt: 18, pb: 12 }}>
         <Box sx={{ textAlign: 'center', maxWidth: 1000, mx: 'auto' }}>
           <Chip
-            label="TSA Software Development 2024-2025"
+            label="TSA Software Development 2025-2026"
             sx={{
               mb: 4,
               background: 'linear-gradient(135deg, rgba(96,165,250,0.2) 0%, rgba(167,139,250,0.2) 100%)',
@@ -112,8 +113,9 @@ function LandingPage({ startDownload, setMobileGuide }) {
             mb: 3,
             lineHeight: 1.1
           }}>
-            Breaking Communication Barriers with AI
+            SignBridge: AI Translation System
           </Typography>
+          <div style={{ display: 'none' }}>ANTIGRAVITY_TEST_MARKER</div>
 
           <Typography variant="h5" sx={{
             color: 'rgba(255,255,255,0.6)',
@@ -286,6 +288,9 @@ function App() {
   const [mobileGuide, setMobileGuide] = useState({ open: false, platform: '' });
   const location = useLocation();
 
+  // Robust Electron Detection
+  const isElectron = navigator.userAgent.toLowerCase().includes('electron');
+
   const startDownload = (platform, isNativeLink = false) => {
     setDownloadState({ open: true, platform, progress: 0 });
 
@@ -318,7 +323,7 @@ function App() {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const isDetectorRoute = location.pathname === '/app';
+  const isDetectorRoute = location.pathname === '/app' || (location.pathname === '/' && isElectron);
 
   return (
     <ThemeProvider theme={theme}>
@@ -338,7 +343,7 @@ function App() {
             <Toolbar sx={{ maxWidth: 1200, width: '100%', mx: 'auto' }}>
               <AutoAwesomeIcon sx={{ mr: 1.5, color: 'primary.main' }} />
               <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 700 }}>
-                SignBridge
+                SignBridge AI Translation
               </Typography>
               <Button color="inherit" sx={{ mr: 2, opacity: 0.7 }} onClick={() => scrollTo('about')}>About</Button>
               <Button color="inherit" sx={{ mr: 2, opacity: 0.7 }} onClick={() => scrollTo('techstack')}>Tech Stack</Button>
@@ -367,7 +372,7 @@ function App() {
         )}
 
         <Routes>
-          <Route path="/" element={<LandingPage startDownload={startDownload} setMobileGuide={setMobileGuide} />} />
+          <Route path="/" element={isElectron ? <SignLanguageDetector /> : <LandingPage startDownload={startDownload} setMobileGuide={setMobileGuide} />} />
           <Route path="/app" element={<SignLanguageDetector />} />
         </Routes>
 
@@ -393,7 +398,7 @@ function App() {
         {/* Improved Download Notification */}
         <Snackbar
           open={downloadState.open}
-          autoHideDuration={8000}
+          autoHideDuration={10000}
           onClose={handleClose}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
         >
@@ -401,7 +406,7 @@ function App() {
             onClose={handleClose}
             severity={downloadState.progress < 100 ? "info" : "success"}
             variant="filled"
-            sx={{ width: '100%', minWidth: 320 }}
+            sx={{ width: '100%', minWidth: 320, borderRadius: 4 }}
           >
             <Box sx={{ mb: 1, fontWeight: 600 }}>
               {downloadState.progress < 100
@@ -417,19 +422,23 @@ function App() {
             )}
             {downloadState.progress === 100 && (
               <Box>
-                <Typography variant="body2" sx={{ mb: 0.5 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
                   {downloadState.platform === 'macOS'
-                    ? "Check your Downloads folder for SignBridge-Installer.dmg"
-                    : "For the TSA demo, the Windows version is pre-installed on the workstation."}
+                    ? "If Chrome blocks the download, click 'Keep' or try Safari. Check your Downloads folder."
+                    : "For the TSA demo, the Windows version is pre-installed."}
                 </Typography>
                 {downloadState.platform === 'macOS' && (
                   <Button
                     size="small"
-                    href="/downloads/SignBridge-Installer.dmg"
-                    download="SignBridge-Installer.dmg"
-                    sx={{ color: 'white', textDecoration: 'underline', mt: 1, p: 0 }}
+                    variant="contained"
+                    fullWidth
+                    onClick={() => {
+                      // Force a raw location change as a fallback for Chrome/Safari
+                      window.location.href = '/downloads/SignBridge-Installer.dmg';
+                    }}
+                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', textTransform: 'none', mt: 1 }}
                   >
-                    Didn't start? Click here to retry
+                    Retry Direct Download
                   </Button>
                 )}
               </Box>

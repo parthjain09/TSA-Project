@@ -3,10 +3,14 @@ import { Box, TextField, Button, Typography, Paper, List, ListItem, ListItemText
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import CameraIcon from '@mui/icons-material/Camera';
 
+// This component is where we can actually "teach" the AI new signs.
+// We added this because sometimes the pre-trained models don't recognize 
+// specific hand shapes correctly, so this lets the user fix it.
 const TrainingPanel = ({ classCounts, onAddClass, onCapture }) => {
     const [newClassName, setNewClassName] = useState("");
 
     const handleAddClass = () => {
+        // Just checking if they actually typed a name
         if (newClassName.trim()) {
             onAddClass(newClassName.trim());
             setNewClassName("");

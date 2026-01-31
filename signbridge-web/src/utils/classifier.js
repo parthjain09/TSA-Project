@@ -1,9 +1,11 @@
-// ai brain
+// This is the "brain" of the app. It uses KNN (K-Nearest Neighbors)
+// to figure out which sign is which based on the hand landmarks.
 let classifier = null;
 
-// gets the classifier
+// This function gets the classifier ready. We only want to create it once.
 export const getClassifier = () => {
     if (!classifier) {
+        // We use the @tensorflow-models/knn-classifier package here
         classifier = knnClassifier.create();
     }
     return classifier;

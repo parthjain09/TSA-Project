@@ -4,14 +4,6 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-    // Bypass service worker for large installer files
-    if (e.request.url.endsWith('.dmg')) {
-        return;
-    }
-
-    e.respondWith(
-        fetch(e.request).catch(() => {
-            return new Response("Offline mode not implemented yet, but we're working on it!");
-        })
-    );
+    // bypass everything for now to force updates
+    return;
 });
