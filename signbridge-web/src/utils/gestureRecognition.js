@@ -4,107 +4,117 @@
  * Optimized for SignBridge AI Translation
  */
 
-// This helper function helps us calculate the angle between three points.
-// We use this to see if a finger is bent or straight.
-function calc(p1, p2, p3) {
-  const a = { x: p1.x - p2.x, y: p1.y - p2.y, z: p1.z - p2.z };
-  const b = { x: p3.x - p2.x, y: p3.y - p2.y, z: p3.z - p2.z };
-  const dot = a.x * b.x + a.y * b.y + a.z * b.z;
-  const len1 = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
-  const len2 = Math.sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
-  const rad = Math.acos(Math.max(-1, Math.min(1, dot / (len1 * len2))));
-  return (rad * 180) / Math.PI; // Convert to degrees because it's easier to understand
-}
-
 const checkFinger = (list, idx, hand) => {
   const wrist = list[0];
   const tip = list[idx * 4 + 4];
+  const pip = list[idx * 4 + 2];
   const mcp = list[idx * 4 + 1];
 
   if (idx === 0) { // Thumb
-    const d = tip.x - mcp.x;
-    return (hand === "Right") ? d < -0.02 : d > 0.02;
+    // Thumb is open if it's far from the palm
+    const d = Math.abs(tip.x - list[9].x); // Distance to middle finger base
+    return d > 0.1;
   }
 
-  // A finger is "down" if the tip is closer to the wrist than the MCP joint
+  // A finger is "open" if the tip is further from the wrist than the PIP joint
   const distTip = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
-  const distMcp = Math.sqrt(Math.pow(mcp.x - wrist.x, 2) + Math.pow(mcp.y - wrist.y, 2));
-  return distTip < distMcp;
+  const distPip = Math.sqrt(Math.pow(pip.x - wrist.x, 2) + Math.pow(pip.y - wrist.y, 2));
+  return distTip > distPip;
 };
 
 export const recognizeGesture = (l, h = "Right") => {
-  if (!l) return null;
+  if (!l || l.length < 21) return null;
 
   const m = (h !== "Right") ? -1 : 1;
-  const dX = (a, b) => (a.x - b.x) * m;
+  const dX = (a, b) => (l[a].x - l[b].x) * m;
+  const dY = (a, b) => l[a].y - l[b].y;
+  const dist = (a, b) => Math.sqrt(Math.pow(l[a].x - l[b].x, 2) + Math.pow(l[a].y - l[b].y, 2));
 
-  const t = l[4], i = l[8], mid = l[12], ring = l[16], p = l[20];
-  const i_mcp = l[5], m_mcp = l[9], r_index = l[6], r_mcp = l[13];
+  // Finger states: true = OPEN, false = CLOSED
+  const thumbOpen = checkFinger(l, 0, h);
+  const indexOpen = checkFinger(l, 1, h);
+  const middleOpen = checkFinger(l, 2, h);
+  const ringOpen = checkFinger(l, 3, h);
+  const pinkyOpen = checkFinger(l, 4, h);
 
-  const f1 = checkFinger(l, 1, h); // index
-  const f2 = checkFinger(l, 2, h); // middle
-  const f3 = checkFinger(l, 3, h); // ring
-  const f4 = checkFinger(l, 4, h); // pinky
+  // 1. ALL CLOSED (Fist variants: A, S, E, T, M, N)
+  if (!indexOpen && !middleOpen && !ringOpen && !pinkyOpen) {
+    const t = l[4];
+    // A: Thumb on side
+    if (dX(4, 5) > 0.05) return "A";
+    // E: Thumb tucked in front of curled fingers
+    if (dist(4, 8) < 0.08 && dist(4, 12) < 0.08) return "E";
+    // S: Thumb over fingers
+    if (dist(4, 10) < 0.08) return "S";
+    // T: Thumb between index and middle (often looks like thumb over index base)
+    if (dist(4, 6) < 0.05) return "T";
+    // N: Thumb between middle and ring
+    if (dist(4, 10) < 0.05) return "N";
+    // M: Thumb between ring and pinky
+    if (dist(4, 14) < 0.05) return "M";
 
-  // 1. ALL FINGERS DOWN (Fist: A, S, E, T, M, N)
-  const fingersDownCount = [f1, f2, f3, f4].filter(f => f).length;
-  if (fingersDownCount >= 3) {
-    const distTIPS = Math.sqrt(Math.pow(t.x - l[8].x, 2) + Math.pow(t.y - l[8].y, 2));
-
-    // Check for "A" - Thumb is on the side
-    if (dX(t, l[5]) < 0.04) return "A";
-
-    if (distTIPS < 0.06) return "E";
-    if (dX(t, l[6]) > 0.02 && dX(t, l[10]) < 0.06) return "S";
-    if (dX(t, l[5]) > -0.02 && dX(t, l[9]) < 0.01) return "T";
-    if (dX(t, l[9]) > 0 && dX(t, l[13]) < 0.01) return "N";
-    if (dX(t, l[13]) > 0) return "M";
-    return "A";
+    return "A"; // Default fist
   }
 
-  // 2. CURVED FINGERS (C, O, B)
-  if (!f1 && !f2 && !f3 && !f4) {
-    const dOT = Math.sqrt(Math.pow(i.x - t.x, 2) + Math.pow(i.y - t.y, 2));
-    if (dOT < 0.06) return "O";
-    if (dOT < 0.15 && i.x > t.x) return "C";
-    return "B"; // Flat palm
+  // 2. FLAT PALM / OPEN (B, 5)
+  if (indexOpen && middleOpen && ringOpen && pinkyOpen) {
+    if (dist(8, 12) < 0.1) return "B";
+    return "5";
   }
 
-  // 3. ONE FINGER UP (D, L, X)
-  if (!f1 && f2 && f3 && f4) {
-    if (dX(t, l[5]) < -0.1) return "L";
-    if (calc(l[5], l[6], i) < 150) return "X";
+  // 3. INDEX ONLY (D, Z, G, H) - Z is usually moving D
+  if (indexOpen && !middleOpen && !ringOpen && !pinkyOpen) {
+    // Check for horizontal orientation (G, H)
+    if (Math.abs(dY(8, 5)) < 0.1) {
+      // If middle is also somewhat extended sideways but not "open" upwards
+      if (dist(12, 9) > 0.1 && Math.abs(dY(12, 9)) < 0.1) return "H";
+      return "G";
+    }
+    // L: Index up, Thumb out
+    if (thumbOpen && dX(4, 5) < -0.1) return "L";
     return "D";
   }
 
-  // 4. PINKY UP (I, Y)
-  if (f1 && f2 && f3 && !f4) {
-    if (dX(t, l[5]) < -0.1) return "Y";
-    return "I";
-  }
-
-  // 5. TWO FINGERS UP (U, V, R, K, P)
-  if (!f1 && !f2 && f3 && f4) {
-    if (i.y > i_mcp.y) return "P";
-    if (dX(i, mid) > 0) return "R";
-    const dt = Math.sqrt(Math.pow(i.x - mid.x, 2) + Math.pow(i.y - mid.y, 2));
-    if (dt < 0.06) return "U";
-    if (t.y < l[5].y) return "K";
+  // 4. INDEX + MIDDLE (U, V, R, K, P)
+  if (indexOpen && middleOpen && !ringOpen && !pinkyOpen) {
+    // P: Downwards K
+    if (dY(8, 5) > 0.1) return "P";
+    // K: Index up, middle up, index-tip is higher, thumb touching middle
+    if (dist(4, 10) < 0.08) return "K";
+    // R: Crossed
+    if (dX(8, 12) > 0) return "R";
+    // U: Touching
+    if (dist(8, 12) < 0.06) return "U";
+    // V: Spread
     return "V";
   }
 
-  // 6. THREE FINGERS UP (W, F)
-  if (!f1 && !f2 && !f3 && f4) return "W";
-  if (f1 && !f2 && !f3 && !f4) {
-    const d = Math.sqrt(Math.pow(i.x - t.x, 2) + Math.pow(i.y - t.y, 2));
-    if (d < 0.07) return "F";
+  // 5. PINKY ONLY (I, J)
+  if (!indexOpen && !middleOpen && !ringOpen && pinkyOpen) {
+    return "I";
   }
 
-  // 7. G, H, Q (Horizontal)
-  if (Math.abs(i.y - i_mcp.y) < 0.08) {
-    if (i.y > i_mcp.y + 0.05) return "Q";
-    if (!f2) return "H";
-    return "G";
+  // 6. THUMB + PINKY (Y)
+  if (thumbOpen && !indexOpen && !middleOpen && !ringOpen && pinkyOpen) {
+    return "Y";
+  }
+
+  // 7. THREE FINGERS (W, F)
+  if (indexOpen && middleOpen && ringOpen && !pinkyOpen) return "W";
+  if (!indexOpen && middleOpen && ringOpen && pinkyOpen) {
+    if (dist(4, 8) < 0.1) return "F";
+  }
+
+  // 8. C, O, X
+  if (!indexOpen && !middleOpen && !ringOpen && !pinkyOpen) {
+    // (Already handled fist, but O/C are curved)
+  }
+
+  // Specific check for C and O (based on index curvature)
+  const indexCurved = dist(8, 5) < 0.15;
+  if (indexCurved && thumbOpen) {
+    if (dist(4, 8) < 0.08) return "O";
+    return "C";
   }
 
   return null;

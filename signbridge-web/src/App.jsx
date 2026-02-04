@@ -192,8 +192,52 @@ function LandingPage({ startDownload, setMobileGuide }) {
             </Button>
           </Stack>
 
+          {/* Mobile Download Options */}
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center" sx={{ mb: 4 }}>
+            <Button
+              variant="outlined"
+              size="medium"
+              component={RouterLink}
+              to="/app"
+              startIcon={<AppleIcon />}
+              sx={{
+                px: 3,
+                py: 1.5,
+                fontSize: '0.9rem',
+                borderColor: 'rgba(255,255,255,0.2)',
+                color: 'rgba(255,255,255,0.7)',
+                '&:hover': {
+                  borderColor: '#60a5fa',
+                  bgcolor: 'rgba(96,165,250,0.1)'
+                }
+              }}
+            >
+              Install on iOS (PWA)
+            </Button>
+            <Button
+              variant="outlined"
+              size="medium"
+              component={RouterLink}
+              to="/app"
+              startIcon={<AndroidIcon />}
+              sx={{
+                px: 3,
+                py: 1.5,
+                fontSize: '0.9rem',
+                borderColor: 'rgba(255,255,255,0.2)',
+                color: 'rgba(255,255,255,0.7)',
+                '&:hover': {
+                  borderColor: '#34d399',
+                  bgcolor: 'rgba(52,211,153,0.1)'
+                }
+              }}
+            >
+              Install on Android (PWA)
+            </Button>
+          </Stack>
+
           <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)' }}>
-            Version 1.0.0 • Supports macOS 11+ & Windows 10+
+            Version 1.0.0 • Supports macOS 11+, Windows 10+, iOS 12+, Android 8+
           </Typography>
         </Box>
       </Container>

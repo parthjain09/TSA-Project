@@ -1,10 +1,17 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { FilesetResolver, HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
-import { Box, Typography, Paper, CircularProgress, Button, Switch, FormControlLabel, Chip, Divider, Grid, Paper as MuiPaper } from '@mui/material';
+import { Box, Typography, Paper, CircularProgress, LinearProgress, Button, Switch, FormControlLabel, Chip, Divider, Grid, Stack, Paper as MuiPaper } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { recognizeGesture } from '../utils/gestureRecognition';
 import { predict } from '../utils/classifier';
 import TrainingPanel from './TrainingPanel';
+import { MeetingManager } from '../utils/meetingManager';
+import PeopleIcon from '@mui/icons-material/People';
+import MeetingRoomIcon from '@mui/icons-material/MeetingRoom';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import SendIcon from '@mui/icons-material/Send';
+import GitHubIcon from '@mui/icons-material/GitHub';
+import { TextField, InputAdornment, IconButton, Tooltip } from '@mui/material';
 
 const SIGN_DESCRIPTIONS = {
     A: "Fist, thumb on side",
@@ -103,14 +110,19 @@ const SignLanguageDetector = () => {
     const [gesture, setGesture] = useState("Ready");
     const [confidence, setConfidence] = useState(0);
     const [gestureHistory, setGestureHistory] = useState([]);
+    const gestureHistoryRef = useRef([]);
 
     // Sentence Translation Engine - This was the hardest part to get right!
     // We have to "hold" the sign for a second so it doesn't type by accident.
     const [sentence, setSentence] = useState("");
     const [currentWord, setCurrentWord] = useState("");
+    const sentenceRef = useRef("");
+    const currentWordRef = useRef("");
     const [lastChar, setLastChar] = useState("");
+    const lastCharRef = useRef("");
     const [holdStartTime, setHoldStartTime] = useState(0);
-    const TRANSLATION_HOLD_THRESHOLD = 600; // Faster typing (600ms)
+    const holdStartTimeRef = useRef(0);
+    const TRANSLATION_HOLD_THRESHOLD = 900;
 
     const [trainingMode, setTrainingMode] = useState(false);
     const [isMeetingMode, setIsMeetingMode] = useState(false);
@@ -121,6 +133,76 @@ const SignLanguageDetector = () => {
     const [deviceId, setDeviceId] = useState(undefined);
     const [devices, setDevices] = useState([]);
     const [diag, setDiag] = useState({ state: 'Idle', res: '0x0', hands: false, raw: '---', handedness: 'None' });
+
+    // Meeting Mode State
+    const [meetingManager, setMeetingManager] = useState(null);
+    const [roomCode, setRoomCode] = useState('');
+    const [joinCode, setJoinCode] = useState('');
+    const [participants, setParticipants] = useState({});
+    const [remoteTranslations, setRemoteTranslations] = useState({});
+    const [userId] = useState(() => 'user_' + Math.random().toString(36).substr(2, 6));
+
+    const handleCreateMeeting = async () => {
+        const manager = new MeetingManager(userId, 'Person ' + userId.split('_')[1]);
+        const code = await manager.createMeeting();
+        setMeetingManager(manager);
+        setRoomCode(code);
+        setIsMeetingMode(true);
+
+        manager.listenToTranslations((data) => {
+            setRemoteTranslations(data);
+        });
+    };
+
+    const handleJoinMeeting = async () => {
+        if (!joinCode) return;
+        const manager = new MeetingManager(userId, 'Person ' + userId.split('_')[1]);
+        await manager.joinMeeting(joinCode);
+        setMeetingManager(manager);
+        setRoomCode(joinCode);
+        setIsMeetingMode(true);
+
+        manager.listenToTranslations((data) => {
+            setRemoteTranslations(data);
+        });
+    };
+
+    const handleLeaveMeeting = async () => {
+        if (meetingManager) {
+            await meetingManager.leaveMeeting();
+            setMeetingManager(null);
+            setRoomCode('');
+            setRemoteTranslations({});
+        }
+    };
+
+    const handleClear = () => {
+        // Clear States
+        setSentence("");
+        setCurrentWord("");
+        setLastChar("");
+        setHoldStartTime(0);
+        setGestureHistory([]);
+
+        // Clear Refs (Crucial for the prediction loop!)
+        sentenceRef.current = "";
+        currentWordRef.current = "";
+        lastCharRef.current = "";
+        holdStartTimeRef.current = 0;
+        gestureHistoryRef.current = [];
+
+        // If in a meeting, broadcast the clear
+        if (meetingManager) {
+            meetingManager.sendTranslation("");
+        }
+    };
+
+    // Broadcast local translation when it updates
+    useEffect(() => {
+        if (meetingManager && (sentence || currentWord)) {
+            meetingManager.sendTranslation(sentence + currentWord);
+        }
+    }, [sentence, currentWord, meetingManager]);
 
     // Download Transcript Function
     const downloadTranscript = () => {
@@ -150,13 +232,13 @@ const SignLanguageDetector = () => {
                 const landmarker = await HandLandmarker.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-                        delegate: "GPU" // Try GPU for better performance
+                        delegate: "GPU"
                     },
                     runningMode: "VIDEO",
                     numHands: 2,
-                    minHandDetectionConfidence: 0.6, // Lower threshold for fewer drops
-                    minHandPresenceConfidence: 0.6,
-                    minTrackingConfidence: 0.6
+                    minHandDetectionConfidence: 0.5,
+                    minHandPresenceConfidence: 0.5,
+                    minTrackingConfidence: 0.5
                 });
                 setHandLandmarker(landmarker);
                 setLoading(false);
@@ -183,6 +265,8 @@ const SignLanguageDetector = () => {
                 };
             }
         } catch (err) {
+            console.error("Camera Error:", err);
+            alert("Camera Failed: " + err.name + " - " + err.message);
             setCameraError(`${err.name}: ${err.message}`);
             setWebcamRunning(false);
         }
@@ -202,65 +286,91 @@ const SignLanguageDetector = () => {
 
     const smoothGesture = (newGesture, newConfidence) => {
         if (!newGesture || ["...", "Ready", "Position Hand"].includes(newGesture)) {
-            // Only clear history if we've lost tracking for a bit
-            if (gestureHistory.length > 0) {
-                const updatedHistory = [...gestureHistory].slice(1);
-                setGestureHistory(updatedHistory);
+            // Gradually clear history
+            if (gestureHistoryRef.current.length > 0) {
+                gestureHistoryRef.current = gestureHistoryRef.current.slice(1);
+                setGestureHistory([...gestureHistoryRef.current]);
             }
-            return { gesture: newGesture, confidence: newConfidence };
+            return { gesture: newGesture || "Scanning...", confidence: 0 };
         }
 
-        const updatedHistory = [...gestureHistory, { gesture: newGesture, confidence: newConfidence }].slice(-6); // Smaller buffer for speed
-        setGestureHistory(updatedHistory);
+        gestureHistoryRef.current = [...gestureHistoryRef.current, { gesture: newGesture, confidence: newConfidence }].slice(-25);
+        setGestureHistory([...gestureHistoryRef.current]);
 
+        const history = gestureHistoryRef.current;
         const counts = {};
         const confs = {};
-        updatedHistory.forEach(item => {
+
+        history.forEach(item => {
             counts[item.gesture] = (counts[item.gesture] || 0) + 1;
             confs[item.gesture] = (confs[item.gesture] || 0) + item.confidence;
         });
 
         const mostCommon = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
 
-        // Require 4/6 frames for faster response
-        if (counts[mostCommon] >= 4) {
-            return { gesture: mostCommon, confidence: Math.round(confs[mostCommon] / counts[mostCommon]) };
+        // Require 18/25 frames (~72% consensus) for rock-solid stability
+        if (counts[mostCommon] >= 18) {
+            return {
+                gesture: mostCommon,
+                confidence: Math.round(confs[mostCommon] / counts[mostCommon])
+            };
         }
-        return { gesture, confidence };
+
+        // If not enough confidence yet, return the raw gesture but don't commit it to translation yet
+        return { gesture: newGesture, confidence: newConfidence, pending: true };
     };
 
     const processTranslation = (detected) => {
-        if (!detected || ["...", "Ready", "Position Hand"].includes(detected)) {
+        if (!detected || ["...", "Ready", "Position Hand", "Scanning...", "Unknown Sign"].includes(detected)) {
+            holdStartTimeRef.current = 0;
             setHoldStartTime(0);
             return;
         }
 
-        if (detected === lastChar) {
-            if (holdStartTime === 0) {
-                setHoldStartTime(Date.now());
-            } else {
-                const holdDuration = Date.now() - holdStartTime;
-                if (holdDuration > TRANSLATION_HOLD_THRESHOLD) {
-                    if (detected === 'B' || detected === 'Space') {
-                        // Word separator
-                        if (currentWord) {
-                            setSentence(prev => prev + currentWord + " ");
-                            setCurrentWord("");
-                        } else if (!sentence.endsWith(" ")) {
-                            setSentence(prev => prev + " ");
-                        }
-                    } else {
-                        // Character addition
-                        setCurrentWord(prev => prev + detected);
-                    }
-                    // Reset to prevent double-typing the same instance
-                    setLastChar("");
-                    setHoldStartTime(0);
+        const now = Date.now();
+
+        // New gesture detected
+        if (detected !== lastCharRef.current) {
+            lastCharRef.current = detected;
+            setLastChar(detected);
+
+            holdStartTimeRef.current = now;
+            setHoldStartTime(now);
+
+            if (detected === 'B' || detected === 'Space') {
+                if (currentWordRef.current) {
+                    sentenceRef.current += currentWordRef.current + " ";
+                    setSentence(sentenceRef.current);
+
+                    currentWordRef.current = "";
+                    setCurrentWord("");
                 }
+            } else {
+                currentWordRef.current = detected;
+                setCurrentWord(detected);
             }
         } else {
-            setLastChar(detected);
-            setHoldStartTime(Date.now());
+            // Same sign held
+            const holdDuration = now - holdStartTimeRef.current;
+            if (holdDuration > TRANSLATION_HOLD_THRESHOLD) {
+                if (detected === 'B' || detected === 'Space') {
+                    if (currentWordRef.current) {
+                        sentenceRef.current += currentWordRef.current + " ";
+                        setSentence(sentenceRef.current);
+                        currentWordRef.current = "";
+                        setCurrentWord("");
+                    }
+                } else {
+                    sentenceRef.current += currentWordRef.current;
+                    setSentence(sentenceRef.current);
+                    currentWordRef.current = "";
+                    setCurrentWord("");
+                }
+                lastCharRef.current = "";
+                setLastChar("");
+                holdStartTimeRef.current = 0;
+                setHoldStartTime(0);
+            }
         }
     };
 
@@ -280,8 +390,8 @@ const SignLanguageDetector = () => {
 
                 if (results.landmarks?.length > 0) {
                     const drawingUtils = new DrawingUtils(ctx);
-                    let detectedGesture = null;
-                    let detectedHand = "Right";
+                    let bestGesture = null;
+                    let bestHand = "Right";
 
                     // Process all detected hands
                     for (let i = 0; i < results.landmarks.length; i++) {
@@ -293,26 +403,40 @@ const SignLanguageDetector = () => {
                         const raw = recognizeGesture(landmarks, hand);
 
                         if (raw) {
-                            detectedGesture = raw;
-                            detectedHand = hand;
+                            if (!bestGesture) {
+                                // First match found
+                                bestGesture = raw;
+                                bestHand = hand;
+                            } else if (bestGesture === "B" && raw !== "B") {
+                                // Upgrade: We found a 'B' (likely rest) before, but this is a specific sign. Take it.
+                                bestGesture = raw;
+                                bestHand = hand;
+                            }
                         }
                     }
 
-                    if (detectedGesture) {
+                    if (bestGesture) {
                         // Valid gesture detected
-                        setDiag(prev => ({ ...prev, hands: true, handedness: detectedHand, raw: detectedGesture, state: 'Translating' }));
-                        const final = smoothGesture(detectedGesture, 95);
+                        setDiag(prev => ({ ...prev, hands: true, handedness: bestHand, raw: bestGesture, state: 'Translating' }));
+
+                        const final = smoothGesture(bestGesture, 95);
+
                         setGesture(final.gesture);
                         setConfidence(final.confidence);
-                        processTranslation(final.gesture);
+
+                        // Only send to translation bar if it's "smooth" (not just a flicker)
+                        if (!final.pending) {
+                            processTranslation(final.gesture);
+                        }
                     } else {
                         // No specific gesture recognized
                         setGesture("Unknown Sign");
+                        holdStartTimeRef.current = 0;
                         setHoldStartTime(0);
                     }
                 } else {
                     setDiag(prev => ({ ...prev, hands: false, raw: '---', state: 'Scanning...' }));
-                    setGesture(webcamRunning ? "Position Hand" : "Ready");
+                    setGesture(webcamRunning ? "Scanning..." : "Ready");
                     setConfidence(0);
                     setGestureHistory([]);
                     setHoldStartTime(0);
@@ -320,6 +444,7 @@ const SignLanguageDetector = () => {
             } catch (err) {
                 console.error("Prediction Error:", err);
                 setDiag(prev => ({ ...prev, state: 'Error: ' + err.message }));
+                setGesture("Error: " + err.message); // Show error to user
             }
         }
         if (webcamRunning) requestAnimationFrame(predictFrame);
@@ -331,9 +456,10 @@ const SignLanguageDetector = () => {
 
     return (
         <Box sx={{
-            minHeight: '100vh',
+            height: '100vh', // Fixed height for full screen app
+            overflow: isMeetingMode ? 'hidden' : 'auto', // Allow scroll in normal mode, fixed in meeting
             bgcolor: '#050510',
-            p: isMeetingMode ? 0 : 4,
+            p: isMeetingMode ? 2 : 4, // Add padding even in meeting mode for edge safety
             color: 'white',
             display: 'flex',
             flexDirection: 'column',
@@ -385,15 +511,21 @@ const SignLanguageDetector = () => {
                 </Box>
             )}
 
-            <Grid container spacing={isMeetingMode ? 0 : 4} sx={{ flexGrow: 1, maxWidth: 1400, mx: 'auto' }}>
+            <Grid container spacing={isMeetingMode ? 2 : 4} sx={{ flexGrow: 1, height: isMeetingMode ? '100%' : 'auto', maxWidth: 1400, mx: 'auto' }}>
                 {/* Left: Main Interaction Area */}
-                <Grid item xs={12} md={isMeetingMode ? 12 : 9}>
+                <Grid item xs={12} md={isMeetingMode ? 12 : 9} sx={{
+                    height: isMeetingMode ? '100%' : 'auto',
+                    display: isMeetingMode ? 'flex' : 'block',
+                    flexDirection: 'column'
+                }}>
                     <MuiPaper elevation={0} sx={{
                         position: 'relative',
                         bgcolor: 'rgba(255, 255, 255, 0.05)',
-                        borderRadius: isMeetingMode ? 0 : 6,
+                        borderRadius: isMeetingMode ? 4 : 6,
                         overflow: 'hidden',
-                        height: isMeetingMode ? '75vh' : '550px',
+                        flex: isMeetingMode ? 1 : 'none', // Flex grow in meeting mode
+                        height: isMeetingMode ? 'auto' : '550px',
+                        minHeight: 0, // Important for flex scrolling
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
@@ -412,6 +544,7 @@ const SignLanguageDetector = () => {
                                     variant="contained"
                                     size="large"
                                     onClick={() => setWebcamRunning(true)}
+                                    disabled={!handLandmarker}
                                     sx={{
                                         bgcolor: '#60a5fa',
                                         px: 6,
@@ -420,15 +553,28 @@ const SignLanguageDetector = () => {
                                         fontSize: '1.1rem',
                                         textTransform: 'none',
                                         boxShadow: '0 8px 25px rgba(96, 165, 250, 0.3)',
-                                        '&:hover': { bgcolor: '#3b82f6' }
+                                        '&:hover': { bgcolor: '#3b82f6' },
+                                        '&.Mui-disabled': { bgcolor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.3)' }
                                     }}
                                 >
-                                    Activate Camera & Sensors
+                                    {!handLandmarker ? (
+                                        <>
+                                            <CircularProgress size={20} sx={{ mr: 2, color: 'rgba(255,255,255,0.5)' }} />
+                                            Initializing AI...
+                                        </>
+                                    ) : (
+                                        "Activate Camera & Sensors"
+                                    )}
                                 </Button>
+                                {cameraError && (
+                                    <Typography color="error" sx={{ mt: 2, bgcolor: 'rgba(255,0,0,0.1)', p: 1, borderRadius: 2 }}>
+                                        {cameraError}
+                                    </Typography>
+                                )}
 
                                 <Box sx={{ mt: 6, opacity: 0.4 }}>
                                     <Typography variant="body2">Privacy Layer: Active (Local processing only)</Typography>
-                                    <Typography variant="body2">Language: ASL Alphabet v2.1</Typography>
+                                    <Typography variant="body2">Version: v2.0 (New Port 5174)</Typography>
                                 </Box>
                             </Box>
                         ) : (
@@ -450,7 +596,13 @@ const SignLanguageDetector = () => {
                                     textAlign: 'center',
                                     zIndex: 10
                                 }}>
-                                    <Typography variant="h3" sx={{ fontWeight: 800, color: '#fff' }}>{gesture}</Typography>
+                                    <Typography variant="h3" sx={{
+                                        fontWeight: 800,
+                                        color: holdStartTime > 0 ? '#fbbf24' : '#fff', // Turn yellow/orange when holding
+                                        transition: 'color 0.2s'
+                                    }}>
+                                        {gesture}
+                                    </Typography>
                                     {holdStartTime > 0 && gesture !== "Position Hand" && (
                                         <LinearProgress
                                             variant="determinate"
@@ -466,27 +618,35 @@ const SignLanguageDetector = () => {
                                 >
                                     Stop Camera
                                 </Button>
+
                             </>
                         )}
                     </MuiPaper>
 
                     {/* Translation Result Bar */}
                     <MuiPaper sx={{
-                        mt: 3,
+                        mt: 2,
                         p: 3,
                         bgcolor: 'rgba(255,255,255,0.03)',
                         borderRadius: 4,
                         border: '1px solid rgba(255,255,255,0.1)',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'space-between'
+                        justifyContent: 'space-between',
+                        flexShrink: 0,
+                        flexWrap: 'wrap',
+                        gap: 2
                     }}>
-                        <Typography variant="h5" sx={{ fontFamily: 'monospace', opacity: sentence ? 1 : 0.4 }}>
-                            {sentence || "Translation will appear here..."}
-                            <Box component="span" sx={{ bgcolor: '#60a5fa', width: '2px', height: '1em', display: 'inline-block', ml: 1, animation: 'blink 1s infinite' }} />
-                        </Typography>
+                        <Box sx={{ flex: 1, minWidth: '200px' }}>
+                            <Typography variant="h5" sx={{ fontFamily: 'monospace', opacity: (sentence || currentWord) ? 1 : 0.4 }}>
+                                {sentence}{currentWord}
+                                {!sentence && !currentWord && "Translation will appear here..."}
+                                <Box component="span" sx={{ bgcolor: '#60a5fa', width: '2px', height: '1em', display: 'inline-block', ml: 1, animation: 'blink 1s infinite' }} />
+                            </Typography>
+                        </Box>
+
                         <Stack direction="row" spacing={1}>
-                            <Button size="small" onClick={() => setSentence("")} sx={{ color: 'rgba(255,255,255,0.5)', textTransform: 'none' }}>Clear</Button>
+                            <Button size="small" onClick={handleClear} sx={{ color: 'rgba(255,255,255,0.5)', textTransform: 'none' }}>Clear</Button>
                             {isMeetingMode && (
                                 <Button size="small" variant="outlined" onClick={downloadTranscript} sx={{ color: '#60a5fa', borderColor: '#60a5fa', textTransform: 'none' }}>
                                     Save Notes
@@ -497,12 +657,98 @@ const SignLanguageDetector = () => {
                             </Button>
                         </Stack>
                     </MuiPaper>
+
+                    {/* Participant Translations Feed (Meeting Mode) */}
+                    {isMeetingMode && Object.keys(remoteTranslations).length > 0 && (
+                        <MuiPaper sx={{
+                            mt: 2,
+                            p: 2,
+                            bgcolor: 'rgba(96,165,250,0.05)',
+                            borderRadius: 4,
+                            border: '1px solid rgba(96,165,250,0.2)'
+                        }}>
+                            <Typography variant="caption" sx={{ color: '#60a5fa', fontWeight: 800, mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <PeopleIcon fontSize="small" /> LIVE PARTICIPANTS
+                            </Typography>
+                            <Stack direction="row" spacing={2} sx={{ overflowX: 'auto', py: 1 }}>
+                                {Object.entries(remoteTranslations)
+                                    .filter(([id]) => id !== userId) // Don't show self in remote feed
+                                    .map(([id, data]) => (
+                                        <Paper key={id} sx={{
+                                            p: 2,
+                                            minWidth: 200,
+                                            bgcolor: 'rgba(255,255,255,0.05)',
+                                            borderRadius: 3,
+                                            border: '1px solid rgba(255,255,255,0.1)'
+                                        }}>
+                                            <Typography variant="caption" sx={{ color: '#f472b6', fontWeight: 700 }}>
+                                                {data.name}
+                                            </Typography>
+                                            <Typography variant="body1" sx={{ fontFamily: 'monospace', mt: 0.5 }}>
+                                                {data.text || "..."}
+                                            </Typography>
+                                        </Paper>
+                                    ))}
+                            </Stack>
+                        </MuiPaper>
+                    )}
                 </Grid>
 
                 {/* Right: Sidebar */}
                 {!isMeetingMode && (
                     <Grid item xs={12} md={3}>
                         <Stack spacing={3}>
+                            {/* Meeting Room Card */}
+                            <MuiPaper sx={{ p: 3, bgcolor: 'rgba(96, 165, 250, 0.05)', borderRadius: 5, border: '1px solid rgba(96, 165, 250, 0.2)' }}>
+                                <Typography variant="h6" sx={{ mb: 2, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <MeetingRoomIcon /> {roomCode ? `Room: ${roomCode}` : 'Meeting Room'}
+                                </Typography>
+
+                                {!roomCode ? (
+                                    <Stack spacing={2}>
+                                        <Button
+                                            fullWidth
+                                            variant="contained"
+                                            onClick={handleCreateMeeting}
+                                            sx={{ background: 'linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%)' }}
+                                        >
+                                            Create Meeting
+                                        </Button>
+                                        <Divider sx={{ opacity: 0.1 }}>OR</Divider>
+                                        <TextField
+                                            fullWidth
+                                            size="small"
+                                            placeholder="Enter Room Code"
+                                            value={joinCode}
+                                            onChange={(e) => setJoinCode(e.target.value)}
+                                            InputProps={{
+                                                endAdornment: (
+                                                    <InputAdornment position="end">
+                                                        <IconButton onClick={handleJoinMeeting} color="primary" size="small">
+                                                            <SendIcon fontSize="small" />
+                                                        </IconButton>
+                                                    </InputAdornment>
+                                                ),
+                                            }}
+                                        />
+                                    </Stack>
+                                ) : (
+                                    <Stack spacing={2}>
+                                        <Box sx={{ p: 1, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <Typography variant="h6" sx={{ letterSpacing: 2, fontWeight: 800 }}>{roomCode}</Typography>
+                                            <Tooltip title="Copy Code">
+                                                <IconButton onClick={() => navigator.clipboard.writeText(roomCode)} size="small">
+                                                    <ContentCopyIcon fontSize="small" />
+                                                </IconButton>
+                                            </Tooltip>
+                                        </Box>
+                                        <Button fullWidth variant="outlined" color="error" onClick={handleLeaveMeeting} sx={{ textTransform: 'none' }}>
+                                            Leave Meeting
+                                        </Button>
+                                    </Stack>
+                                )}
+                            </MuiPaper>
+
                             <MuiPaper sx={{ p: 3, bgcolor: 'rgba(255, 255, 255, 0.03)', borderRadius: 5, border: '1px solid rgba(255,255,255,0.1)' }}>
                                 <Typography variant="h6" sx={{ mb: 2, fontWeight: 700 }}>Quick Key</Typography>
                                 <Divider sx={{ mb: 2, opacity: 0.1 }} />
@@ -554,12 +800,8 @@ const SignLanguageDetector = () => {
             <style>{`
                 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
             `}</style>
-        </Box>
+        </Box >
     );
 };
-
-const Stack = ({ children, spacing }) => (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: spacing }}>{children}</Box>
-);
 
 export default SignLanguageDetector;
